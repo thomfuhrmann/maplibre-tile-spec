@@ -386,12 +386,13 @@ mod tests {
     use crate::LazyParsed;
     use crate::geojson::Coord32;
     use crate::test_helpers::{assert_empty, dec, parser};
-    use crate::v01::{EncodedGeometry, GeometryEncoder, IntEncoding, RawGeometry};
+    use crate::v01::{EncodedGeometry, GeometryEncoder, IntEncoder, IntEncoding, RawGeometry};
 
     /// Encode, serialize, parse, and decode a `GeometryValues`.
     /// The input must already be in the dense canonical form that `from_encoded`
     /// produces (i.e. built via a previous `roundtrip` call, not via `push_*`).
     fn roundtrip(decoded: &GeometryValues, encoder: GeometryEncoder) -> GeometryValues {
+        println!("{decoded:?}");
         let enc_geom = decoded.clone().encode(encoder).expect("Failed to encode");
 
         let mut buffer = Vec::new();
@@ -575,6 +576,36 @@ mod tests {
             geoms.iter().any(|g| matches!(g, Geom32::LineString(_)))
                 && geoms.iter().any(|g| matches!(g, Geom32::MultiPolygon(_)))
         })
+    }
+
+    #[test]
+    fn test_failure() {
+        //   geoms = [POINT(0 0), MULTILINESTRING((0 0,0 0),(0 0,0 0))]
+        let geoms = [
+            Geom32::Point(Point(Coord32 { x: 0, y: 0 })),
+            Geom32::MultiLineString(MultiLineString(vec![
+                LineString(vec![Coord32 { x: 0, y: 0 }, Coord32 { x: 0, y: 0 }]),
+                LineString(vec![Coord32 { x: 0, y: 0 }, Coord32 { x: 0, y: 0 }]),
+            ])),
+        ];
+        let encoder = GeometryEncoder::all(IntEncoder::plain());
+
+        let (can, out) = roundtrip_via_push(&geoms[..], encoder);
+
+        let mut buffer = Vec::new();
+        let enc_geom = can.clone().encode(encoder).expect("Failed to encode");
+        enc_geom.write_to(&mut buffer).expect("Failed to serialize");
+
+        let (remaining, parsed) =
+            RawGeometry::from_bytes(&buffer, &mut parser()).expect("Failed to parse");
+        assert_empty(remaining);
+        println!("{parsed:?}");
+
+        LazyParsed::Raw(parsed)
+            .into_parsed(&mut dec())
+            .expect("Failed to decode");
+        println!("{can:?}");
+        println!("{out:?}");
     }
 
     proptest! {
